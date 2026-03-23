@@ -51,7 +51,6 @@ fi
 
 export LICENSE_KEY="$license_key"
 export BBX_TEST_AGREEMENT="true"
-export BBX_NO_UPDATE="true"
 export BBX_HOSTNAME="$hostname"
 export EMAIL="$email"
 export INSTALL_DOC_VIEWER="$install_doc_viewer"

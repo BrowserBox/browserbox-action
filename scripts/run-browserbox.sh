@@ -51,7 +51,6 @@ rm -f "$login_link_file" "$run_log"
 
 export LICENSE_KEY="$license_key"
 export BBX_TEST_AGREEMENT="true"
-export BBX_NO_UPDATE="true"
 export BBX_HOSTNAME="$hostname"
 export EMAIL="$email"
 export INSTALL_DOC_VIEWER="$install_doc_viewer"
@@ -64,8 +63,9 @@ echo "::add-mask::$LICENSE_KEY"
 
 case "$tunnel" in
   none)
-    bbx setup --port "$port" --hostname "$hostname"
-    bbx start --port "$port" --hostname "$hostname"
+    bbx stop || true
+    bbx setup -p "$port" --hostname "$hostname"
+    bbx start
     login_link="$(wait_for_login_link "$login_link_file" 90)" || fail "Timed out waiting for BrowserBox login link."
     ;;
   cloudflare)
