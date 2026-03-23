@@ -1,0 +1,82 @@
+name: "BrowserBox"
+description: "Launch BrowserBox on a GitHub Actions runner"
+author: "BrowserBox"
+branding:
+  icon: "monitor"
+  color: "blue"
+
+inputs:
+  license-key:
+    description: "BrowserBox license key from https://browserbox.io"
+    required: true
+  tunnel:
+    description: "Exposure mode: none, cloudflare, or tor"
+    required: false
+    default: "none"
+  port:
+    description: "Main BrowserBox service port"
+    required: false
+    default: "8080"
+  hostname:
+    description: "Hostname for local BrowserBox setup when tunnel=none"
+    required: false
+    default: "localhost"
+  email:
+    description: "Email used for BrowserBox setup when needed"
+    required: false
+    default: "actions@browserbox.io"
+  install-url:
+    description: "BrowserBox installer URL"
+    required: false
+    default: "https://browserbox.io/install.sh"
+  status-mode:
+    description: "Optional BrowserBox STATUS_MODE override"
+    required: false
+    default: ""
+  install-doc-viewer:
+    description: "Whether BrowserBox should install document viewer dependencies"
+    required: false
+    default: "false"
+  create-summary:
+    description: "Whether to write a GitHub step summary with the resulting URLs"
+    required: false
+    default: "true"
+
+outputs:
+  login-link:
+    description: "BrowserBox login link"
+    value: ${{ steps.launch.outputs.login-link }}
+  base-url:
+    description: "BrowserBox base URL"
+    value: ${{ steps.launch.outputs.base-url }}
+  tunnel:
+    description: "Selected tunnel mode"
+    value: ${{ steps.launch.outputs.tunnel }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install BrowserBox
+      shell: bash
+      env:
+        BROWSERBOX_ACTION_LICENSE_KEY: ${{ inputs.license-key }}
+        BROWSERBOX_ACTION_INSTALL_URL: ${{ inputs.install-url }}
+        BROWSERBOX_ACTION_HOSTNAME: ${{ inputs.hostname }}
+        BROWSERBOX_ACTION_EMAIL: ${{ inputs.email }}
+        BROWSERBOX_ACTION_INSTALL_DOC_VIEWER: ${{ inputs.install-doc-viewer }}
+        BROWSERBOX_ACTION_STATUS_MODE: ${{ inputs.status-mode }}
+      run: ${{ github.action_path }}/scripts/install-browserbox.sh
+
+    - name: Launch BrowserBox
+      id: launch
+      shell: bash
+      env:
+        BROWSERBOX_ACTION_LICENSE_KEY: ${{ inputs.license-key }}
+        BROWSERBOX_ACTION_TUNNEL: ${{ inputs.tunnel }}
+        BROWSERBOX_ACTION_PORT: ${{ inputs.port }}
+        BROWSERBOX_ACTION_HOSTNAME: ${{ inputs.hostname }}
+        BROWSERBOX_ACTION_EMAIL: ${{ inputs.email }}
+        BROWSERBOX_ACTION_INSTALL_DOC_VIEWER: ${{ inputs.install-doc-viewer }}
+        BROWSERBOX_ACTION_STATUS_MODE: ${{ inputs.status-mode }}
+        BROWSERBOX_ACTION_CREATE_SUMMARY: ${{ inputs.create-summary }}
+      run: ${{ github.action_path }}/scripts/run-browserbox.sh
