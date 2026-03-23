@@ -33,6 +33,7 @@ extract_login_link_from_log() {
 license_key="${BROWSERBOX_ACTION_LICENSE_KEY:-}"
 tunnel="${BROWSERBOX_ACTION_TUNNEL:-none}"
 port="${BROWSERBOX_ACTION_PORT:-8080}"
+service_mode="${BROWSERBOX_ACTION_SERVICE_MODE:-minimal}"
 hostname="${BROWSERBOX_ACTION_HOSTNAME:-localhost}"
 email="${BROWSERBOX_ACTION_EMAIL:-actions@browserbox.io}"
 install_doc_viewer="${BROWSERBOX_ACTION_INSTALL_DOC_VIEWER:-false}"
@@ -41,6 +42,7 @@ create_summary="${BROWSERBOX_ACTION_CREATE_SUMMARY:-true}"
 
 [[ -n "$license_key" ]] || fail "BROWSERBOX_ACTION_LICENSE_KEY is required."
 [[ "$tunnel" == "none" || "$tunnel" == "cloudflare" || "$tunnel" == "tor" ]] || fail "Unsupported tunnel '$tunnel'. Expected none, cloudflare, or tor."
+[[ "$service_mode" == "minimal" || "$service_mode" == "full" ]] || fail "Unsupported service mode '$service_mode'. Expected minimal or full."
 
 config_dir="${HOME}/.config/dosaygo/bbpro"
 login_link_file="${config_dir}/login.link"
@@ -51,15 +53,26 @@ rm -f "$login_link_file" "$run_log"
 
 export LICENSE_KEY="$license_key"
 export BBX_TEST_AGREEMENT="true"
+export BBX_NO_UPDATE="true"
 export BBX_HOSTNAME="$hostname"
 export EMAIL="$email"
 export INSTALL_DOC_VIEWER="$install_doc_viewer"
+
+case "$service_mode" in
+  minimal)
+    export BBX_MINIMAL_MODE="true"
+    ;;
+  full)
+    unset BBX_MINIMAL_MODE || true
+    ;;
+esac
 
 if [[ -n "$status_mode" ]]; then
   export STATUS_MODE="$status_mode"
 fi
 
 echo "::add-mask::$LICENSE_KEY"
+echo "::notice::BrowserBox tunnel=$tunnel service_mode=$service_mode BBX_NO_UPDATE=true"
 
 case "$tunnel" in
   none)
@@ -96,6 +109,7 @@ base_url="$(printf '%s' "$login_link" | sed 's#/login?token=.*##')"
   echo "login-link=$login_link"
   echo "base-url=$base_url"
   echo "tunnel=$tunnel"
+  echo "service-mode=$service_mode"
 } >> "$GITHUB_OUTPUT"
 
 if [[ "$create_summary" == "true" && -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
@@ -103,6 +117,8 @@ if [[ "$create_summary" == "true" && -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "## BrowserBox session"
     echo
     echo "- Tunnel: \`$tunnel\`"
+    echo "- Service mode: \`$service_mode\`"
+    echo "- No update checks: \`true\`"
     echo "- Base URL: \`$base_url\`"
     echo "- Login link: \`$login_link\`"
     echo

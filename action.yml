@@ -17,6 +17,10 @@ inputs:
     description: "Main BrowserBox service port"
     required: false
     default: "8080"
+  service-mode:
+    description: "Service cluster mode: minimal runs bb-main only, full runs all BrowserBox services"
+    required: false
+    default: "minimal"
   hostname:
     description: "Hostname for local BrowserBox setup when tunnel=none"
     required: false
@@ -52,6 +56,9 @@ outputs:
   tunnel:
     description: "Selected tunnel mode"
     value: ${{ steps.launch.outputs.tunnel }}
+  service-mode:
+    description: "Selected BrowserBox service mode"
+    value: ${{ steps.launch.outputs.service-mode }}
 
 runs:
   using: "composite"
@@ -74,6 +81,7 @@ runs:
         BROWSERBOX_ACTION_LICENSE_KEY: ${{ inputs.license-key }}
         BROWSERBOX_ACTION_TUNNEL: ${{ inputs.tunnel }}
         BROWSERBOX_ACTION_PORT: ${{ inputs.port }}
+        BROWSERBOX_ACTION_SERVICE_MODE: ${{ inputs.service-mode }}
         BROWSERBOX_ACTION_HOSTNAME: ${{ inputs.hostname }}
         BROWSERBOX_ACTION_EMAIL: ${{ inputs.email }}
         BROWSERBOX_ACTION_INSTALL_DOC_VIEWER: ${{ inputs.install-doc-viewer }}

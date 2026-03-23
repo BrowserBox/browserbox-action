@@ -6,6 +6,13 @@ This action is a thin wrapper around the existing BrowserBox CLI flows. It insta
 
 BrowserBox requires a valid license key. You can get one at [browserbox.io](https://browserbox.io).
 
+On runners, the action defaults to a minimal runtime footprint:
+
+- `BBX_MINIMAL_MODE=true`
+- `BBX_NO_UPDATE=true`
+
+That means the action starts only `bb-main` unless you explicitly opt into the full multi-service cluster.
+
 ## Status
 
 `browserbox-action` v1 is intentionally narrow:
@@ -37,6 +44,7 @@ jobs:
           license-key: ${{ secrets.BROWSERBOX_LICENSE_KEY }}
           tunnel: cloudflare
           port: 8080
+          service-mode: minimal
 
       - name: Print BrowserBox URL
         run: |
@@ -51,6 +59,7 @@ jobs:
 | `license-key` | Yes | none | BrowserBox license key from [browserbox.io](https://browserbox.io) |
 | `tunnel` | No | `none` | `none`, `cloudflare`, or `tor` |
 | `port` | No | `8080` | Main BrowserBox service port |
+| `service-mode` | No | `minimal` | `minimal` runs only `bb-main`; `full` runs all BrowserBox services |
 | `hostname` | No | `localhost` | Used for local setup when `tunnel=none` |
 | `email` | No | `actions@browserbox.io` | Email used during setup when needed |
 | `install-url` | No | `https://browserbox.io/install.sh` | Installer source |
@@ -65,6 +74,25 @@ jobs:
 | `login-link` | BrowserBox login link |
 | `base-url` | BrowserBox base URL with the token removed |
 | `tunnel` | Effective tunnel mode |
+| `service-mode` | Effective BrowserBox service mode |
+
+## Runtime defaults
+
+By default, the launch step exports:
+
+```bash
+BBX_MINIMAL_MODE=true
+BBX_NO_UPDATE=true
+```
+
+This keeps the runner footprint small and avoids update checks during action-driven launches.
+
+If you need the full BrowserBox cluster because you are mapping or using the auxiliary services yourself, set:
+
+```yaml
+with:
+  service-mode: full
+```
 
 ## Supported modes
 
@@ -73,8 +101,9 @@ jobs:
 Runs:
 
 ```bash
-bbx setup --port <port> --hostname <hostname>
-bbx start --port <port> --hostname <hostname>
+bbx stop
+bbx setup -p <port> --hostname <hostname>
+bbx start
 ```
 
 This is the local runner mode. It is useful when later steps in the same job will talk to BrowserBox directly.
