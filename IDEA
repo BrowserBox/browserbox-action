@@ -1,0 +1,2 @@
+- after action exists, can create a simple CLI tool that spins up the action in the GH cloud and returns the login link. A kind of ephemeral remote browser from anywhere. 
+

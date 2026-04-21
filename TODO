@@ -1,0 +1,24 @@
+ As of March 23, 2026, the action is ready to submit to GitHub Marketplace, but it is not published there yet because BrowserBox/browserbox-action still has no GitHub release object. I pushed the public
+  BrowserBox README note in /Users/crisd/Creative/BrowserBox/README.md:69, and I pushed the action tags so v1 and v1.0.2 both resolve to ad5403a42f98af152fa3bfce68e98e740d3ff536. The Marketplace-facing
+  metadata is in /Users/crisd/Creative/browserbox-action/action.yml:1, and the public docs are in /Users/crisd/Creative/browserbox-action/README.md:1.
+
+  The current state is aligned with GitHub’s Marketplace requirements: the repo is public, there is one root action.yml, there are no workflow files in the action repo, and the action name BrowserBox
+  appears available right now. The last Cloudflare e2e also passed from BrowserBox-source, with the action running in minimal mode and with updates disabled.
+
+  Marketplace Checklist
+
+  1. Have a BrowserBox org owner open https://github.com/BrowserBox/browserbox-action/blob/boss/action.yml and click Draft a release.
+  2. If prompted, accept the GitHub Marketplace Developer Agreement for the org.
+  3. Check Publish this Action to the GitHub Marketplace.
+  4. Use tag v1.0.2.
+  5. Set a release title such as BrowserBox action v1.0.2.
+  6. Confirm GitHub shows the metadata validation as clean. The required fields are already present in /Users/crisd/Creative/browserbox-action/action.yml:1.
+  7. Pick categories. My recommendation, as an inference, is primary Utilities and secondary Deployment.
+  8. Publish the release. GitHub requires 2FA for that step.
+  9. After publish, keep v1 pointed at the latest compatible stable release, and use patch tags like v1.0.3, v1.0.4, and so on.
+
+  Optional polish, not blockers: add community health files and a badge in the action README. One thing not to do under GitHub’s current Marketplace rules is add workflow files to the action repo itself.
+
+  Sources: GitHub Marketplace publishing docs https://docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace , metadata syntax docs
+  https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax , release guidance https://docs.github.com/en/actions/how-tos/create-and-publish-actions/release-and-maintain-actions
+  , Marketplace search for BrowserBox https://github.com/marketplace?query=BrowserBox&type=actions
