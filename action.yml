@@ -1,5 +1,5 @@
 name: "BrowserBox"
-description: "Launch BrowserBox on a GitHub Actions runner"
+description: "Launch a live BrowserBox remote browser on a GitHub Actions runner"
 author: "BrowserBox"
 branding:
   icon: "monitor"
