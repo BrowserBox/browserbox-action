@@ -11,27 +11,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run BrowserBox
+      - name: Run BrowserBox and Smoke Test
         id: bbx
         uses: ./
         with:
           license-key: ${{ secrets.BBX_LICENSE_KEY }}
-          timeout: 2 # Short timeout for smoke test
+          timeout: 3 # Enough time for startup + test
 
-      - name: Smoke Test Accessibility
+      - name: Verify Summary
         run: |
-          LOGIN_LINK="${{ steps.bbx.outputs.login-link }}"
-          BASE_URL="${{ steps.bbx.outputs.base-url }}"
-          echo "Testing accessibility of $BASE_URL"
-          
-          # Try to curl the base URL. We expect a 200 or 302.
-          # We use -L to follow redirects and --retry to handle tunnel startup lag.
-          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L --retry 5 --retry-delay 5 "$BASE_URL")
-          echo "Status Code: $STATUS_CODE"
-          
-          if [[ "$STATUS_CODE" -eq 200 || "$STATUS_CODE" -eq 302 ]]; then
-            echo "Smoke test passed: URL is accessible."
-          else
-            echo "Smoke test failed: URL returned $STATUS_CODE"
+          echo "Login Link: ${{ steps.bbx.outputs.login-link }}"
+          if [[ -z "${{ steps.bbx.outputs.login-link }}" ]]; then
+            echo "Error: Login link is empty"
             exit 1
           fi

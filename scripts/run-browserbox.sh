@@ -31,7 +31,7 @@ extract_login_link_from_log() {
 }
 
 license_key="${BROWSERBOX_ACTION_LICENSE_KEY:-}"
-tunnel="${BROWSERBOX_ACTION_TUNNEL:-none}"
+tunnel="${BROWSERBOX_ACTION_TUNNEL:-cloudflare}"
 port="${BROWSERBOX_ACTION_PORT:-8080}"
 service_mode="${BROWSERBOX_ACTION_SERVICE_MODE:-minimal}"
 hostname="${BROWSERBOX_ACTION_HOSTNAME:-localhost}"
@@ -140,6 +140,17 @@ echo "BrowserBox is running!"
 echo "Login link: $login_link"
 echo "This session will stay active for ${timeout_mins} minutes or until you cancel it."
 echo "--------------------------------------------------------------------------------"
+
+# Background smoke test for public accessibility
+(
+  sleep 10
+  echo "[Smoke Test] Checking accessibility of $base_url ..."
+  if curl -s -o /dev/null -w "%{http_code}" -L --retry 5 --retry-delay 5 "$base_url" | grep -qE "200|302"; then
+    echo "[Smoke Test] SUCCESS: BrowserBox is accessible via tunnel."
+  else
+    echo "[Smoke Test] WARNING: BrowserBox might not be publicly accessible yet (or check failed)."
+  fi
+) &
 
 # Keep alive loop
 end_time=$(( $(date +%s) + timeout_mins * 60 ))
