@@ -1,29 +1,37 @@
-name: Test BrowserBox Action
+name: Smoke Test BrowserBox Action
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 jobs:
-  test-cloudflare:
+  smoke-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run BrowserBox with Cloudflare Tunnel
+      - name: Run BrowserBox
         id: bbx
         uses: ./
         with:
           license-key: ${{ secrets.BBX_LICENSE_KEY }}
-          tunnel: cloudflare
-          service-mode: minimal
+          timeout: 2 # Short timeout for smoke test
 
-      - name: Verify Outputs
+      - name: Smoke Test Accessibility
         run: |
-          echo "Login Link: ${{ steps.bbx.outputs.login-link }}"
-          echo "Base URL: ${{ steps.bbx.outputs.base-url }}"
-          if [[ -z "${{ steps.bbx.outputs.login-link }}" ]]; then
-            echo "Error: Login link is empty"
+          LOGIN_LINK="${{ steps.bbx.outputs.login-link }}"
+          BASE_URL="${{ steps.bbx.outputs.base-url }}"
+          echo "Testing accessibility of $BASE_URL"
+          
+          # Try to curl the base URL. We expect a 200 or 302.
+          # We use -L to follow redirects and --retry to handle tunnel startup lag.
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -L --retry 5 --retry-delay 5 "$BASE_URL")
+          echo "Status Code: $STATUS_CODE"
+          
+          if [[ "$STATUS_CODE" -eq 200 || "$STATUS_CODE" -eq 302 ]]; then
+            echo "Smoke test passed: URL is accessible."
+          else
+            echo "Smoke test failed: URL returned $STATUS_CODE"
             exit 1
           fi

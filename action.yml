@@ -12,7 +12,7 @@ inputs:
   tunnel:
     description: "Exposure mode: none, cloudflare, or tor"
     required: false
-    default: "none"
+    default: "cloudflare"
   port:
     description: "Main BrowserBox service port"
     required: false
