@@ -135,6 +135,17 @@ if [[ "$create_summary" == "true" && -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   } >> "$GITHUB_STEP_SUMMARY"
 fi
 
+# Broadcast to GitHub Issue if requested (for live tracking)
+if [[ -n "${BROADCAST_ISSUE_NUMBER:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
+  echo "[Broadcast] Posting login link to issue #$BROADCAST_ISSUE_NUMBER..."
+  gh issue comment "$BROADCAST_ISSUE_NUMBER" --body "## 🚀 Live BrowserBox Link
+  
+**Login Link:** $login_link
+**Base URL:** $base_url
+  
+Session active for ${timeout_mins}m." || echo "[Broadcast] Failed to post comment."
+fi
+
 echo "--------------------------------------------------------------------------------"
 echo "BrowserBox is running!"
 echo "Login link: $login_link"
