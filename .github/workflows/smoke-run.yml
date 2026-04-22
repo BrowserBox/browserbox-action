@@ -8,6 +8,34 @@ on:
         description: "Minutes to keep the session alive"
         required: false
         default: "10"
+      tunnel:
+        description: "Exposure mode: none, cloudflare, or tor"
+        required: false
+        default: "cloudflare"
+      service-mode:
+        description: "Service cluster mode: minimal or full"
+        required: false
+        default: "minimal"
+      port:
+        description: "Main BrowserBox service port"
+        required: false
+        default: "8080"
+      hostname:
+        description: "Hostname for local setup (tunnel=none)"
+        required: false
+        default: "localhost"
+      email:
+        description: "Email used for BrowserBox setup"
+        required: false
+        default: "actions@browserbox.io"
+      install-doc-viewer:
+        description: "Install document viewer dependencies (true or false)"
+        required: false
+        default: "false"
+      status-mode:
+        description: "Optional BrowserBox STATUS_MODE override"
+        required: false
+        default: ""
 
 jobs:
   live-smoke:
@@ -41,5 +69,12 @@ jobs:
         uses: ./
         with:
           license-key: ${{ secrets.BBX_LICENSE_KEY }}
+          tunnel: ${{ github.event.inputs.tunnel || 'cloudflare' }}
+          service-mode: ${{ github.event.inputs.service-mode || 'minimal' }}
+          port: ${{ github.event.inputs.port || '8080' }}
+          hostname: ${{ github.event.inputs.hostname || 'localhost' }}
+          email: ${{ github.event.inputs.email || 'actions@browserbox.io' }}
+          install-doc-viewer: ${{ github.event.inputs.install-doc-viewer || 'false' }}
+          status-mode: ${{ github.event.inputs.status-mode || '' }}
           timeout: ${{ github.event.inputs.timeout || '10' }}
           broadcast-issue-number: ${{ steps.tracking.outputs.issue-number }}
