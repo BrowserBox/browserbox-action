@@ -18,10 +18,9 @@ On runners, the action defaults to a minimal runtime footprint:
 `browserbox-action` v1 is intentionally narrow:
 
 - Linux runners only
-- `tunnel: none`
-- `tunnel: cloudflare` (Public login link)
-- `tunnel: tor`
-- ZeroTier is intentionally excluded from v1
+- `tunnel: cloudflare` (Default - Public login link)
+- `tunnel: tor` (Onion address)
+- `tunnel: none` (Local runner only)
 
 ## Quick start
 
@@ -40,7 +39,6 @@ jobs:
         uses: BrowserBox/browserbox-action@v1
         with:
           license-key: ${{ secrets.BROWSERBOX_LICENSE_KEY }}
-          tunnel: cloudflare
           timeout: 60 # Stay alive for 60 minutes
 ```
 
@@ -49,13 +47,43 @@ jobs:
 - **Interactive Login Link:** Like `tmate`, the action prints the login link in a loop to the console until the timeout is reached or the job is cancelled.
 - **Configurable Timeout:** Control how long the session stays active (default 30m, up to 150m).
 - **Step Summary:** Automatically adds the login link and base URL to the GitHub Actions Job Summary.
+- **Automated Verification:** The action includes a built-in background smoke test to confirm the public accessibility of your tunnel.
+
+## Example Usages
+
+### Public Cloudflare Tunnel (Default)
+Ideal for quick demos or ephemeral browsing sessions.
+```yaml
+- uses: BrowserBox/browserbox-action@v1
+  with:
+    license-key: ${{ secrets.BBX_LICENSE_KEY }}
+    tunnel: cloudflare
+```
+
+### Tor Network Tunnel
+Generates a `.onion` address for maximum privacy.
+```yaml
+- uses: BrowserBox/browserbox-action@v1
+  with:
+    license-key: ${{ secrets.BBX_LICENSE_KEY }}
+    tunnel: tor
+```
+
+### Local Runner (No Tunnel)
+Useful for automated testing where subsequent steps interact with the browser via `localhost:8080`.
+```yaml
+- uses: BrowserBox/browserbox-action@v1
+  with:
+    license-key: ${{ secrets.BBX_LICENSE_KEY }}
+    tunnel: none
+```
 
 ## Inputs
 
 | Input | Required | Default | Notes |
 | --- | --- | --- | --- |
 | `license-key` | Yes | none | BrowserBox license key from [browserbox.io](https://browserbox.io) |
-| `tunnel` | No | `none` | `none`, `cloudflare`, or `tor` |
+| `tunnel` | No | `cloudflare` | `none`, `cloudflare`, or `tor` |
 | `timeout` | No | `30` | Maximum run time in minutes (max 150) |
 | `port` | No | `8080` | Main BrowserBox service port |
 | `service-mode` | No | `minimal` | `minimal` runs only `bb-main`; `full` runs all BrowserBox services |

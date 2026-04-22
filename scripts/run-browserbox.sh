@@ -40,6 +40,37 @@ base_url_from_login_link() {
   printf '%s' "$1" | sed 's#/login?token=.*##'
 }
 
+check_link_accessible() {
+  local link="$1"
+  local base_url
+  base_url="$(base_url_from_login_link "$link")"
+  local response
+  local out_file
+  out_file="$(mktemp)"
+
+  response=$(curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" --max-time 10 -w "%{http_code}" "$base_url" -o "$out_file" || echo "CURL_FAILED")
+
+  if [[ "$response" =~ ^(200|302|401)$ ]]; then
+    if [[ "$response" == "200" ]]; then
+      if grep -qi "BrowserBox" "$out_file" 2>/dev/null; then
+        rm -f "$out_file"
+        return 0
+      fi
+    else
+      rm -f "$out_file"
+      return 0
+    fi
+  elif [[ "$response" == "403" ]]; then
+    if grep -qi "BrowserBox" "$out_file" 2>/dev/null; then
+      rm -f "$out_file"
+      return 0
+    fi
+  fi
+
+  rm -f "$out_file"
+  return 1
+}
+
 ensure_gh_token() {
   if [[ -z "${GH_TOKEN:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
     export GH_TOKEN="$GITHUB_TOKEN"
@@ -206,20 +237,24 @@ case "$tunnel" in
     # cf-run can spend time in setup/certification, local readiness retries,
     # and up to three Cloudflare URL/verification attempts.
     login_link=""
+    echo "Waiting for verified Cloudflare tunnel URL..."
     for ((i = 0; i < cloudflare_link_timeout_seconds; i++)); do
       candidate="$(extract_cloudflare_login_link "$login_link_file")"
       if [[ -z "$candidate" ]]; then
         candidate="$(extract_cloudflare_login_link "$run_log")"
       fi
       if [[ -n "$candidate" ]]; then
-        login_link="$candidate"
-        break
+        if check_link_accessible "$candidate"; then
+          login_link="$candidate"
+          echo "Verified Cloudflare tunnel URL: $login_link"
+          break
+        fi
       fi
       if ! kill -0 "$cf_pid" 2>/dev/null; then
         cat "$run_log" >&2
         fail "bbx cf-run exited before producing a tunnel URL."
       fi
-      sleep 1
+      sleep 2
     done
 
     if [[ -z "$login_link" ]]; then
@@ -276,34 +311,22 @@ echo "--------------------------------------------------------------------------
 
 # Background smoke test for public accessibility
 (
-  echo "[Smoke Test] Waiting for tunnel to propagate (up to 2 minutes)..."
+  echo "[Smoke Test] Verifying tunnel propagation..."
   MAX_SMOKE_ATTEMPTS=12
   SMOKE_ATTEMPT=1
   SMOKE_SUCCESS=false
-  
+
   while (( SMOKE_ATTEMPT <= MAX_SMOKE_ATTEMPTS )); do
-    sleep 10
-    echo "[Smoke Test Attempt $SMOKE_ATTEMPT/$MAX_SMOKE_ATTEMPTS] Checking $base_url ..."
-    # Try with verbose output to diagnose 403 or other issues
-    RESPONSE=$(curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" --max-time 10 -w "%{http_code}" "$base_url" -o /tmp/smoke_out.html || echo "CURL_FAILED")
-    
-    echo "[Smoke Test] Response code: $RESPONSE"
-    
-    if [[ "$RESPONSE" =~ ^(200|302|401)$ ]]; then
+    if check_link_accessible "$login_link"; then
       echo "[Smoke Test] SUCCESS: BrowserBox is accessible via tunnel."
       SMOKE_SUCCESS=true
       break
-    elif [[ "$RESPONSE" == "403" ]]; then
-      echo "[Smoke Test] Received 403. This might be Cloudflare WAF or Bot Protection. Checking content..."
-      if grep -qi "BrowserBox" /tmp/smoke_out.html; then
-        echo "[Smoke Test] SUCCESS: Found 'BrowserBox' in 403 response body. It is reachable!"
-        SMOKE_SUCCESS=true
-        break
-      fi
     fi
+    echo "[Smoke Test Attempt $SMOKE_ATTEMPT/$MAX_SMOKE_ATTEMPTS] Not yet accessible..."
     (( SMOKE_ATTEMPT++ ))
+    sleep 10
   done
-  
+
   if [[ "$SMOKE_SUCCESS" != "true" ]]; then
     echo "[Smoke Test] WARNING: BrowserBox might not be publicly accessible yet (or check failed)."
   fi
@@ -320,10 +343,12 @@ while (( $(date +%s) < end_time )); do
   if [[ "$tunnel" == "cloudflare" ]]; then
     refreshed_link="$(extract_cloudflare_login_link "$login_link_file")"
     if [[ -n "$refreshed_link" && "$refreshed_link" != "$login_link" ]]; then
-      login_link="$refreshed_link"
-      base_url="$(base_url_from_login_link "$login_link")"
-      echo "::notice title=BrowserBox Login Link Updated::$login_link"
-      broadcast_login_link "BrowserBox login link updated"
+      if check_link_accessible "$refreshed_link"; then
+        login_link="$refreshed_link"
+        base_url="$(base_url_from_login_link "$login_link")"
+        echo "::notice title=BrowserBox Login Link Updated::$login_link"
+        broadcast_login_link "BrowserBox login link updated"
+      fi
     fi
   fi
   echo "[$(date +%T)] BrowserBox is active. Login at: $login_link"

@@ -239,6 +239,34 @@ open_url() {
   fi
 }
 
+check_link_accessible() {
+  local link="$1"
+  local base_url="${link%/login?token=*}"
+  local response
+  local out_file
+  out_file="$(mktemp)"
+
+  if ! command -v curl >/dev/null 2>&1; then
+    rm -f "$out_file"
+    return 0
+  fi
+
+  response=$(curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" --max-time 10 -w "%{http_code}" "$base_url" -o "$out_file" || echo "CURL_FAILED")
+
+  if [[ "$response" =~ ^(200|403)$ ]]; then
+    if grep -qi "BrowserBox" "$out_file" 2>/dev/null; then
+      rm -f "$out_file"
+      return 0
+    fi
+  elif [[ "$response" =~ ^(302|401)$ ]]; then
+    rm -f "$out_file"
+    return 0
+  fi
+
+  rm -f "$out_file"
+  return 1
+}
+
 find_latest_dispatch_run() {
   local repo="$1"
   local workflow="$2"
@@ -329,8 +357,11 @@ wait_for_login_link() {
     )"
 
     if [[ -n "$link" ]]; then
-      printf '%s\n' "$link"
-      return 0
+      if check_link_accessible "$link"; then
+        printf '%s\n' "$link"
+        return 0
+      fi
+      log "found link on issue #${issue_number}, but it is not yet accessible; still waiting..."
     fi
 
     status="$(gh run view "$run_id" --repo "$repo" --json status,conclusion --jq '.status + ":" + (.conclusion // "")' 2>/dev/null || true)"
