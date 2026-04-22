@@ -18,6 +18,7 @@ jobs:
           license-key: ${{ secrets.BBX_LICENSE_KEY }}
           tunnel: cloudflare
           service-mode: minimal
+          timeout: 1
 
       - name: Verify Outputs
         run: |

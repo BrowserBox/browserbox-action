@@ -39,6 +39,14 @@ email="${BROWSERBOX_ACTION_EMAIL:-actions@browserbox.io}"
 install_doc_viewer="${BROWSERBOX_ACTION_INSTALL_DOC_VIEWER:-false}"
 status_mode="${BROWSERBOX_ACTION_STATUS_MODE:-}"
 create_summary="${BROWSERBOX_ACTION_CREATE_SUMMARY:-true}"
+timeout_mins="${BROWSERBOX_ACTION_TIMEOUT:-30}"
+
+# Sanitize timeout: min 1, max 150
+if [[ ! "$timeout_mins" =~ ^[0-9]+$ ]]; then
+  timeout_mins=30
+fi
+if (( timeout_mins < 1 )); then timeout_mins=1; fi
+if (( timeout_mins > 150 )); then timeout_mins=150; fi
 
 [[ -n "$license_key" ]] || fail "BROWSERBOX_ACTION_LICENSE_KEY is required."
 [[ "$tunnel" == "none" || "$tunnel" == "cloudflare" || "$tunnel" == "tor" ]] || fail "Unsupported tunnel '$tunnel'. Expected none, cloudflare, or tor."
@@ -72,7 +80,7 @@ if [[ -n "$status_mode" ]]; then
 fi
 
 echo "::add-mask::$LICENSE_KEY"
-echo "::notice::BrowserBox tunnel=$tunnel service_mode=$service_mode BBX_NO_UPDATE=true"
+echo "::notice::BrowserBox tunnel=$tunnel service_mode=$service_mode BBX_NO_UPDATE=true timeout=${timeout_mins}m"
 
 case "$tunnel" in
   none)
@@ -126,3 +134,19 @@ if [[ "$create_summary" == "true" && -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "License keys: https://browserbox.io"
   } >> "$GITHUB_STEP_SUMMARY"
 fi
+
+echo "--------------------------------------------------------------------------------"
+echo "BrowserBox is running!"
+echo "Login link: $login_link"
+echo "This session will stay active for ${timeout_mins} minutes or until you cancel it."
+echo "--------------------------------------------------------------------------------"
+
+# Keep alive loop
+end_time=$(( $(date +%s) + timeout_mins * 60 ))
+while (( $(date +%s) < end_time )); do
+  echo "[$(date +%T)] BrowserBox is active. Login at: $login_link"
+  sleep 60
+done
+
+echo "Timeout reached. Stopping BrowserBox."
+bbx stop || true

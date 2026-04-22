@@ -45,6 +45,10 @@ inputs:
     description: "Whether to write a GitHub step summary with the resulting URLs"
     required: false
     default: "true"
+  timeout:
+    description: "Maximum run time in minutes (default 30, max 150)"
+    required: false
+    default: "30"
 
 outputs:
   login-link:
@@ -87,4 +91,5 @@ runs:
         BROWSERBOX_ACTION_INSTALL_DOC_VIEWER: ${{ inputs.install-doc-viewer }}
         BROWSERBOX_ACTION_STATUS_MODE: ${{ inputs.status-mode }}
         BROWSERBOX_ACTION_CREATE_SUMMARY: ${{ inputs.create-summary }}
+        BROWSERBOX_ACTION_TIMEOUT: ${{ inputs.timeout }}
       run: ${{ github.action_path }}/scripts/run-browserbox.sh
