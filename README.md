@@ -4,6 +4,8 @@ Launch [BrowserBox](https://github.com/BrowserBox/BrowserBox) on a GitHub Action
 
 This action is a thin wrapper around the existing BrowserBox CLI flows. It installs BrowserBox from [browserbox.io](https://browserbox.io), applies your license key, starts the service, and returns the resulting URL as an action output.
 
+**Ephemeral Remote Browser:** This action allows you to run BrowserBox on GitHub runner infrastructure and get a public login link using `cf-run`, providing you with an ephemeral remote browser.
+
 BrowserBox requires a valid license key. You can get one at [browserbox.io](https://browserbox.io).
 
 On runners, the action defaults to a minimal runtime footprint:
@@ -11,19 +13,15 @@ On runners, the action defaults to a minimal runtime footprint:
 - `BBX_MINIMAL_MODE=true`
 - `BBX_NO_UPDATE=true`
 
-That means the action starts only `bb-main` unless you explicitly opt into the full multi-service cluster.
-
 ## Status
 
 `browserbox-action` v1 is intentionally narrow:
 
 - Linux runners only
 - `tunnel: none`
-- `tunnel: cloudflare`
+- `tunnel: cloudflare` (Public login link)
 - `tunnel: tor`
 - ZeroTier is intentionally excluded from v1
-
-The repo is kept minimal so it can stay compatible with GitHub Action publishing requirements for a dedicated public action repository.
 
 ## Quick start
 
@@ -43,14 +41,14 @@ jobs:
         with:
           license-key: ${{ secrets.BROWSERBOX_LICENSE_KEY }}
           tunnel: cloudflare
-          port: 8080
-          service-mode: minimal
-
-      - name: Print BrowserBox URL
-        run: |
-          echo "Login link: ${{ steps.browserbox.outputs.login-link }}"
-          echo "Base URL:   ${{ steps.browserbox.outputs.base-url }}"
+          timeout: 60 # Stay alive for 60 minutes
 ```
+
+## Features
+
+- **Interactive Login Link:** Like `tmate`, the action prints the login link in a loop to the console until the timeout is reached or the job is cancelled.
+- **Configurable Timeout:** Control how long the session stays active (default 30m, up to 150m).
+- **Step Summary:** Automatically adds the login link and base URL to the GitHub Actions Job Summary.
 
 ## Inputs
 
@@ -58,6 +56,7 @@ jobs:
 | --- | --- | --- | --- |
 | `license-key` | Yes | none | BrowserBox license key from [browserbox.io](https://browserbox.io) |
 | `tunnel` | No | `none` | `none`, `cloudflare`, or `tor` |
+| `timeout` | No | `30` | Maximum run time in minutes (max 150) |
 | `port` | No | `8080` | Main BrowserBox service port |
 | `service-mode` | No | `minimal` | `minimal` runs only `bb-main`; `full` runs all BrowserBox services |
 | `hostname` | No | `localhost` | Used for local setup when `tunnel=none` |
@@ -76,70 +75,6 @@ jobs:
 | `tunnel` | Effective tunnel mode |
 | `service-mode` | Effective BrowserBox service mode |
 
-## Runtime defaults
-
-By default, the launch step exports:
-
-```bash
-BBX_MINIMAL_MODE=true
-BBX_NO_UPDATE=true
-```
-
-This keeps the runner footprint small and avoids update checks during action-driven launches.
-
-If you need the full BrowserBox cluster because you are mapping or using the auxiliary services yourself, set:
-
-```yaml
-with:
-  service-mode: full
-```
-
-## Supported modes
-
-### `tunnel: none`
-
-Runs:
-
-```bash
-bbx stop
-bbx setup -p <port> --hostname <hostname>
-bbx start
-```
-
-This is the local runner mode. It is useful when later steps in the same job will talk to BrowserBox directly.
-
-### `tunnel: cloudflare`
-
-Runs:
-
-```bash
-bbx cf-run --background --port <port>
-```
-
-This is the easiest public demo path for v1.
-
-### `tunnel: tor`
-
-Runs:
-
-```bash
-bbx setup --port <port> --hostname <hostname>
-bbx tor-run --no-darkweb
-```
-
-For v1 this action uses the onion-service path only. It does not enable the "browse outward over Tor" mode.
-
-## Ubuntu notes
-
-This action is written for GitHub-hosted Ubuntu runners in v1.
-
-If the runner is missing prerequisites, the install step uses `apt-get` to install:
-
-- `curl`
-- `jq`
-- `sudo`
-- `vim-common` for `xxd`
-
 ## Documentation
 
 - Main BrowserBox project: [github.com/BrowserBox/BrowserBox](https://github.com/BrowserBox/BrowserBox)
@@ -149,8 +84,7 @@ If the runner is missing prerequisites, the install step uses `apt-get` to insta
 ## Limitations
 
 - GitHub runners are ephemeral. Your BrowserBox session only lives as long as the job and runner do.
-- This action does not yet implement ZeroTier.
-- This action does not currently provide a cleanup/post step. Runner teardown is relied on for v1.
+- Maximum timeout is 150 minutes.
 
 ## License
 
