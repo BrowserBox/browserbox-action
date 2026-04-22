@@ -90,14 +90,34 @@ case "$tunnel" in
     login_link="$(wait_for_login_link "$login_link_file" 90)" || fail "Timed out waiting for BrowserBox login link."
     ;;
   cloudflare)
-    # Using & and disown to ensure it stays in background and doesn't block the script
-    bbx cf-run --background --port "$port" >"$run_log" 2>&1 &
-    disown
-    
-    login_link="$(wait_for_login_link "$login_link_file" 120)" || {
-      cat "$run_log" >&2
-      fail "Timed out waiting for Cloudflare BrowserBox login link."
-    }
+    # bbx cf-run is a foreground command that writes login.link twice:
+    # first with a localhost URL (from setup_bbpro), then overwrites it
+    # with the Cloudflare tunnel URL once cloudflared is up. We run it
+    # in our own background and poll login.link for the https:// form.
+    bbx cf-run --port "$port" >"$run_log" 2>&1 &
+    cf_pid=$!
+
+    login_link=""
+    for ((i = 0; i < 90; i++)); do
+      if [[ -s "$login_link_file" ]]; then
+        candidate="$(tr -d '\r' < "$login_link_file" | head -n 1)"
+        if [[ "$candidate" =~ ^https:// ]]; then
+          login_link="$candidate"
+          break
+        fi
+      fi
+      if ! kill -0 "$cf_pid" 2>/dev/null; then
+        cat "$run_log" >&2
+        fail "bbx cf-run exited before producing a tunnel URL."
+      fi
+      sleep 1
+    done
+
+    if [[ -z "$login_link" ]]; then
+      kill -INT "$cf_pid" 2>/dev/null || true
+      tail -n 80 "$run_log" >&2
+      fail "Timed out after 90s waiting for Cloudflare tunnel URL."
+    fi
     ;;
   tor)
     bbx setup --port "$port" --hostname "$hostname"
@@ -135,16 +155,8 @@ if [[ "$create_summary" == "true" && -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   } >> "$GITHUB_STEP_SUMMARY"
 fi
 
-# Broadcast to GitHub Issue if requested (for live tracking)
-if [[ -n "${BROADCAST_ISSUE_NUMBER:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
-  echo "[Broadcast] Posting login link to issue #$BROADCAST_ISSUE_NUMBER..."
-  gh issue comment "$BROADCAST_ISSUE_NUMBER" --body "## 🚀 Live BrowserBox Link
-  
-**Login Link:** $login_link
-**Base URL:** $base_url
-  
-Session active for ${timeout_mins}m." || echo "[Broadcast] Failed to post comment."
-fi
+# Surface the link in the GitHub Actions UI banner while the job is still running.
+echo "::notice title=BrowserBox Login Link::$login_link"
 
 echo "--------------------------------------------------------------------------------"
 echo "BrowserBox is running!"
@@ -190,9 +202,18 @@ echo "--------------------------------------------------------------------------
 # Keep alive loop
 end_time=$(( $(date +%s) + timeout_mins * 60 ))
 while (( $(date +%s) < end_time )); do
+  if [[ -n "${cf_pid:-}" ]] && ! kill -0 "$cf_pid" 2>/dev/null; then
+    echo "::error::bbx cf-run died; tunnel is no longer active."
+    tail -n 80 "$run_log" >&2 || true
+    exit 1
+  fi
   echo "[$(date +%T)] BrowserBox is active. Login at: $login_link"
   sleep 60
 done
 
 echo "Timeout reached. Stopping BrowserBox."
+if [[ -n "${cf_pid:-}" ]]; then
+  kill -INT "$cf_pid" 2>/dev/null || true
+  wait "$cf_pid" 2>/dev/null || true
+fi
 bbx stop || true
