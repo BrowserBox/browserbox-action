@@ -16,7 +16,7 @@ jobs:
         uses: ./
         with:
           license-key: ${{ secrets.BBX_LICENSE_KEY }}
-          timeout: 3 # Short timeout for smoke test
+          timeout: 5 # More time for propagated smoke test
 
       - name: Verify Login Link Output
         run: |

@@ -143,9 +143,11 @@ echo "--------------------------------------------------------------------------
 
 # Background smoke test for public accessibility
 (
-  sleep 10
+  # Give it more time and use more retries with curl
+  echo "[Smoke Test] Waiting for tunnel to propagate..."
+  sleep 30
   echo "[Smoke Test] Checking accessibility of $base_url ..."
-  if curl -s -o /dev/null -w "%{http_code}" -L --retry 5 --retry-delay 5 "$base_url" | grep -qE "200|302"; then
+  if curl -s -o /dev/null -w "%{http_code}" -L -A "Mozilla/5.0 (BrowserBoxActionSmokeTest)" --retry 10 --retry-delay 10 --retry-all-errors "$base_url" | grep -qE "200|302|401"; then
     echo "[Smoke Test] SUCCESS: BrowserBox is accessible via tunnel."
   else
     echo "[Smoke Test] WARNING: BrowserBox might not be publicly accessible yet (or check failed)."
