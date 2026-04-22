@@ -11,14 +11,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run BrowserBox and Smoke Test
+      - name: Run BrowserBox
         id: bbx
         uses: ./
         with:
           license-key: ${{ secrets.BBX_LICENSE_KEY }}
-          timeout: 3 # Enough time for startup + test
+          timeout: 3 # Short timeout for smoke test
 
-      - name: Verify Summary
+      - name: Verify Login Link Output
         run: |
           echo "Login Link: ${{ steps.bbx.outputs.login-link }}"
           if [[ -z "${{ steps.bbx.outputs.login-link }}" ]]; then
