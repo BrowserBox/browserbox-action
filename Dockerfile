@@ -17,7 +17,7 @@
 #     --build-arg OCI_IMAGE_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 #     --build-arg OCI_IMAGE_REVISION="$(git rev-parse HEAD)" \
 #     --build-arg OCI_IMAGE_VERSION="v16.8.11" \
-#     -t gcr.io/github/browserbox/browserbox:v16.8.11 .
+#     -t ghcr.io/browserbox/browserbox:v16.8.11 .
 
 ARG BBX_IMAGE_PLATFORM=linux/amd64
 

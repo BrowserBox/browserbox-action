@@ -6,13 +6,18 @@ usage() {
 Build and publish the BrowserBox container image.
 
 Defaults:
-  GCR image:        gcr.io/github/browserbox/browserbox
-  Docker Hub image: browserbox/browserbox
+  GitHub image:     ghcr.io/browserbox/browserbox
+  Docker Hub image: dosaygo/browserbox
   Platform:         linux/amd64
 
 Auth prerequisites:
-  docker login
-  gcloud auth configure-docker gcr.io
+  The script logs into enabled target registries before publishing.
+  GitHub Container Registry:
+    GHCR_USERNAME/GITHUB_ACTOR plus GHCR_TOKEN/GITHUB_TOKEN, or docker login ghcr.io.
+  Docker Hub:
+    docker login, or DOCKERHUB_USERNAME plus DOCKERHUB_TOKEN/DOCKERHUB_PASSWORD.
+  GCR/Artifact Registry:
+    gcloud auth login, GCR_ACCESS_TOKEN, GCR_JSON_KEY, or GCR_USERNAME plus GCR_PASSWORD.
 
 Common usage:
   scripts/publish-image.sh
@@ -20,10 +25,11 @@ Common usage:
   DRY_RUN=1 scripts/publish-image.sh
 
 Environment overrides:
-  GCR_IMAGE                  Full GCR image ref. Empty string disables GCR.
+  GHCR_IMAGE                 Full GitHub Container Registry image ref. Empty string disables GHCR.
   DOCKERHUB_IMAGE            Full Docker Hub image ref. Empty string disables Docker Hub.
-  IMAGE_NAME                 Shared image path used by defaults. Default: browserbox/browserbox
-  GCR_PROJECT                GCR project used by defaults. Default: github
+  GCR_IMAGE                  Full GCR image ref. Default: disabled.
+  GHCR_IMAGE_NAME            GHCR image path used by default. Default: browserbox/browserbox
+  DOCKERHUB_IMAGE_NAME       Docker Hub image path used by default. Default: dosaygo/browserbox
   BROWSERBOX_RELEASE_TAG     BrowserBox release to install. Default: latest GitHub release.
   PLATFORMS                  Buildx platforms. Default: linux/amd64
   PUSH_LATEST                Also tag latest. Default: true
@@ -33,6 +39,7 @@ Environment overrides:
   PIN_RELEASE                Pass BROWSERBOX_RELEASE_TAG to Dockerfile. Default: true
   SBOM                       Add buildx --sbom=true. Default: false
   PROVENANCE                 Add buildx --provenance=true. Default: false
+  SKIP_REGISTRY_LOGIN        Do not run registry login preflight. Default: false
   DRY_RUN                    Print the buildx command without running it.
 USAGE
 }
@@ -86,6 +93,149 @@ print_command() {
   printf '\n'
 }
 
+registry_for_ref() {
+  local ref first
+  ref="$1"
+
+  if [[ "$ref" != */* ]]; then
+    printf 'docker.io\n'
+    return 0
+  fi
+
+  first="${ref%%/*}"
+
+  if [[ "$first" == *.* || "$first" == *:* || "$first" == "localhost" ]]; then
+    case "$first" in
+      index.docker.io|registry-1.docker.io) printf 'docker.io\n' ;;
+      *) printf '%s\n' "$first" ;;
+    esac
+    return 0
+  fi
+
+  printf 'docker.io\n'
+}
+
+add_unique() {
+  local item existing
+  item="$1"
+  shift
+
+  for existing in "$@"; do
+    if [[ "$existing" == "$item" ]]; then
+      return 1
+    fi
+  done
+
+  printf '%s\n' "$item"
+}
+
+docker_login_with_password() {
+  local registry username password
+  registry="$1"
+  username="$2"
+  password="$3"
+
+  if [[ "$registry" == "docker.io" ]]; then
+    printf '%s' "$password" | docker login --username "$username" --password-stdin
+  else
+    printf '%s' "$password" | docker login "$registry" --username "$username" --password-stdin
+  fi
+}
+
+login_dockerhub() {
+  local username password
+  username="${DOCKERHUB_USERNAME:-${DOCKER_USERNAME:-}}"
+  password="${DOCKERHUB_TOKEN:-${DOCKERHUB_PASSWORD:-${DOCKER_PASSWORD:-}}}"
+
+  echo "[publish] Logging into Docker Hub"
+  if [[ -n "$username" && -n "$password" ]]; then
+    docker_login_with_password docker.io "$username" "$password"
+  else
+    docker login
+  fi
+}
+
+login_gcr() {
+  local registry username password account project
+  registry="$1"
+  username="${GCR_USERNAME:-}"
+  password="${GCR_PASSWORD:-${GCR_ACCESS_TOKEN:-${GCR_JSON_KEY:-}}}"
+
+  if [[ -z "$username" && -n "${GCR_ACCESS_TOKEN:-}" ]]; then
+    username="oauth2accesstoken"
+  elif [[ -z "$username" && -n "${GCR_JSON_KEY:-}" ]]; then
+    username="_json_key"
+  fi
+
+  echo "[publish] Logging into ${registry}"
+  if [[ -n "$username" && -n "$password" ]]; then
+    docker_login_with_password "$registry" "$username" "$password"
+    return 0
+  fi
+
+  if command -v gcloud >/dev/null 2>&1; then
+    gcloud auth configure-docker "$registry" --quiet
+    gcloud auth print-access-token --quiet >/dev/null
+    account="$(gcloud config get-value account 2>/dev/null || true)"
+    project="$(gcloud config get-value project 2>/dev/null || true)"
+    if [[ -n "$account" ]]; then
+      echo "[publish] gcloud account: ${account}"
+    fi
+    if [[ -n "$project" ]]; then
+      echo "[publish] gcloud project: ${project}"
+    fi
+    return 0
+  fi
+
+  docker login "$registry"
+}
+
+login_ghcr() {
+  local username password
+  username="${GHCR_USERNAME:-${GITHUB_ACTOR:-}}"
+  password="${GHCR_TOKEN:-${GITHUB_TOKEN:-}}"
+
+  echo "[publish] Logging into ghcr.io"
+  if [[ -n "$username" && -n "$password" ]]; then
+    docker_login_with_password ghcr.io "$username" "$password"
+  else
+    docker login ghcr.io
+  fi
+}
+
+login_registry() {
+  local registry
+  registry="$1"
+
+  case "$registry" in
+    docker.io) login_dockerhub ;;
+    ghcr.io) login_ghcr ;;
+    gcr.io|*.gcr.io|*.pkg.dev) login_gcr "$registry" ;;
+    *)
+      echo "[publish] Logging into ${registry}"
+      docker login "$registry"
+      ;;
+  esac
+}
+
+login_target_registries() {
+  local registries=()
+  local image registry added
+
+  for image in "$@"; do
+    registry="$(registry_for_ref "$image")"
+    added="$(add_unique "$registry" "${registries[@]}")" || true
+    if [[ -n "$added" ]]; then
+      registries+=("$added")
+    fi
+  done
+
+  echo "[publish] Registry login preflight:"
+  for registry in "${registries[@]}"; do
+    login_registry "$registry"
+  done
+}
+
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
@@ -99,10 +249,11 @@ need tr
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOCKERFILE="${DOCKERFILE:-${ROOT}/Dockerfile}"
-IMAGE_NAME="${IMAGE_NAME:-browserbox/browserbox}"
-GCR_PROJECT="${GCR_PROJECT:-github}"
-GCR_IMAGE="${GCR_IMAGE-gcr.io/${GCR_PROJECT}/${IMAGE_NAME}}"
-DOCKERHUB_IMAGE="${DOCKERHUB_IMAGE-${IMAGE_NAME}}"
+GHCR_IMAGE_NAME="${GHCR_IMAGE_NAME:-${IMAGE_NAME:-browserbox/browserbox}}"
+DOCKERHUB_IMAGE_NAME="${DOCKERHUB_IMAGE_NAME:-dosaygo/browserbox}"
+GHCR_IMAGE="${GHCR_IMAGE-ghcr.io/${GHCR_IMAGE_NAME}}"
+DOCKERHUB_IMAGE="${DOCKERHUB_IMAGE-${DOCKERHUB_IMAGE_NAME}}"
+GCR_IMAGE="${GCR_IMAGE-}"
 PLATFORMS="${PLATFORMS:-linux/amd64}"
 
 release_tag="${BROWSERBOX_RELEASE_TAG:-${BBX_RELEASE_TAG:-}}"
@@ -117,11 +268,14 @@ source_url="${OCI_IMAGE_SOURCE:-https://github.com/BrowserBox/browserbox-action}
 documentation_url="${OCI_IMAGE_DOCUMENTATION:-https://github.com/BrowserBox/browserbox-action#readme}"
 
 images=()
-if [[ -n "$GCR_IMAGE" ]]; then
-  images+=("$(normalize_ref "$GCR_IMAGE")")
+if [[ -n "$GHCR_IMAGE" ]]; then
+  images+=("$(normalize_ref "$GHCR_IMAGE")")
 fi
 if [[ -n "$DOCKERHUB_IMAGE" ]]; then
   images+=("$(normalize_ref "$DOCKERHUB_IMAGE")")
+fi
+if [[ -n "$GCR_IMAGE" ]]; then
+  images+=("$(normalize_ref "$GCR_IMAGE")")
 fi
 
 if [[ "${#images[@]}" -eq 0 ]]; then
@@ -209,6 +363,10 @@ done
 if is_truthy "${DRY_RUN:-false}"; then
   print_command "${cmd[@]}"
   exit 0
+fi
+
+if ! is_truthy "${SKIP_REGISTRY_LOGIN:-false}"; then
+  login_target_registries "${images[@]}"
 fi
 
 print_command "${cmd[@]}"
