@@ -11,14 +11,17 @@
 # By default this installs the latest BrowserBox release at build time. Set
 # BBX_RELEASE_TAG to pin a release, for example:
 #   docker build --build-arg BBX_RELEASE_TAG=v16.8.11 -t browserbox:v16.8.11 .
+#
+# Publishing metadata can be stamped by CI, for example:
+#   docker build \
+#     --build-arg OCI_IMAGE_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+#     --build-arg OCI_IMAGE_REVISION="$(git rev-parse HEAD)" \
+#     --build-arg OCI_IMAGE_VERSION="v16.8.11" \
+#     -t gcr.io/github/browserbox/browserbox:v16.8.11 .
 
 ARG BBX_IMAGE_PLATFORM=linux/amd64
 
 FROM --platform=${BBX_IMAGE_PLATFORM} debian:bookworm-slim
-
-LABEL org.opencontainers.image.title="BrowserBox" \
-  org.opencontainers.image.description="General BrowserBox binary image with warmed Chromium profile" \
-  org.opencontainers.image.source="https://github.com/BrowserBox/BrowserBox"
 
 ARG BBX_INSTALL_URL="https://browserbox.io/install.sh"
 ARG BBX_RELEASE_TAG=""
@@ -27,6 +30,43 @@ ARG BBX_BUILD_LICENSE_KEY="build-time-placeholder"
 ARG BBX_PORT=8080
 ARG BBX_HOSTNAME=localhost
 ARG BBX_MINIMAL_MODE=true
+
+ARG OCI_IMAGE_TITLE="BrowserBox"
+ARG OCI_IMAGE_DESCRIPTION="General BrowserBox binary image with warmed Chromium profile and runtime token refresh"
+ARG OCI_IMAGE_SOURCE="https://github.com/BrowserBox/browserbox-action"
+ARG OCI_IMAGE_DOCUMENTATION="https://github.com/BrowserBox/browserbox-action#readme"
+ARG OCI_IMAGE_URL="https://browserbox.io"
+ARG OCI_IMAGE_VENDOR="DOSAYGO Corporation"
+ARG OCI_IMAGE_AUTHORS="DOSAYGO Corporation <legal@dosaygo.com>"
+ARG OCI_IMAGE_LICENSES="LicenseRef-BrowserBox"
+ARG OCI_IMAGE_VERSION="latest"
+ARG OCI_IMAGE_REVISION=""
+ARG OCI_IMAGE_CREATED=""
+ARG OCI_IMAGE_REF_NAME="browserbox"
+ARG OCI_IMAGE_BASE_NAME="docker.io/library/debian:bookworm-slim"
+
+LABEL org.opencontainers.image.title="${OCI_IMAGE_TITLE}" \
+  org.opencontainers.image.description="${OCI_IMAGE_DESCRIPTION}" \
+  org.opencontainers.image.url="${OCI_IMAGE_URL}" \
+  org.opencontainers.image.source="${OCI_IMAGE_SOURCE}" \
+  org.opencontainers.image.documentation="${OCI_IMAGE_DOCUMENTATION}" \
+  org.opencontainers.image.vendor="${OCI_IMAGE_VENDOR}" \
+  org.opencontainers.image.authors="${OCI_IMAGE_AUTHORS}" \
+  org.opencontainers.image.licenses="${OCI_IMAGE_LICENSES}" \
+  org.opencontainers.image.version="${OCI_IMAGE_VERSION}" \
+  org.opencontainers.image.revision="${OCI_IMAGE_REVISION}" \
+  org.opencontainers.image.created="${OCI_IMAGE_CREATED}" \
+  org.opencontainers.image.ref.name="${OCI_IMAGE_REF_NAME}" \
+  org.opencontainers.image.base.name="${OCI_IMAGE_BASE_NAME}" \
+  io.browserbox.image.kind="general-binary" \
+  io.browserbox.install.url="${BBX_INSTALL_URL}" \
+  io.browserbox.release.tag="${BBX_RELEASE_TAG}" \
+  io.browserbox.default.port="${BBX_PORT}" \
+  io.browserbox.default.hostname="${BBX_HOSTNAME}" \
+  io.browserbox.minimal_mode="${BBX_MINIMAL_MODE}" \
+  io.browserbox.chrome.path="/usr/bin/chromium" \
+  io.browserbox.profile.warmed="true" \
+  io.browserbox.runtime_setup="fresh-token-on-start"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
