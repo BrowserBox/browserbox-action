@@ -30,6 +30,45 @@ extract_login_link_from_log() {
   grep -oE 'https://[^[:space:]]+/login\?token=[^[:space:]]+' "$log_file" | tail -n 1 || true
 }
 
+extract_cloudflare_login_link() {
+  local source_file="$1"
+  [[ -f "$source_file" ]] || return 0
+  grep -aoE 'https://[A-Za-z0-9-]+\.trycloudflare\.com/login\?token=[A-Za-z0-9._~%+-]+' "$source_file" | tail -n 1 || true
+}
+
+base_url_from_login_link() {
+  printf '%s' "$1" | sed 's#/login?token=.*##'
+}
+
+stop_cloudflare_runner() {
+  local pid="${1:-}"
+  local wait_seconds="${2:-20}"
+
+  [[ -n "$pid" ]] || return 0
+  kill -0 "$pid" 2>/dev/null || return 0
+
+  kill -INT "$pid" 2>/dev/null || true
+  for ((i = 0; i < wait_seconds; i++)); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid" 2>/dev/null || true
+      return 0
+    fi
+    sleep 1
+  done
+
+  kill -TERM "$pid" 2>/dev/null || true
+  for ((i = 0; i < 5; i++)); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid" 2>/dev/null || true
+      return 0
+    fi
+    sleep 1
+  done
+
+  kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
 license_key="${BROWSERBOX_ACTION_LICENSE_KEY:-}"
 tunnel="${BROWSERBOX_ACTION_TUNNEL:-cloudflare}"
 port="${BROWSERBOX_ACTION_PORT:-8080}"
@@ -40,6 +79,7 @@ install_doc_viewer="${BROWSERBOX_ACTION_INSTALL_DOC_VIEWER:-false}"
 status_mode="${BROWSERBOX_ACTION_STATUS_MODE:-}"
 create_summary="${BROWSERBOX_ACTION_CREATE_SUMMARY:-true}"
 timeout_mins="${BROWSERBOX_ACTION_TIMEOUT:-30}"
+cloudflare_link_timeout_seconds="${BROWSERBOX_ACTION_CLOUDFLARE_LINK_TIMEOUT:-600}"
 
 # Sanitize timeout: min 1, max 150
 if [[ ! "$timeout_mins" =~ ^[0-9]+$ ]]; then
@@ -47,6 +87,12 @@ if [[ ! "$timeout_mins" =~ ^[0-9]+$ ]]; then
 fi
 if (( timeout_mins < 1 )); then timeout_mins=1; fi
 if (( timeout_mins > 150 )); then timeout_mins=150; fi
+
+if [[ ! "$cloudflare_link_timeout_seconds" =~ ^[0-9]+$ ]]; then
+  cloudflare_link_timeout_seconds=600
+fi
+if (( cloudflare_link_timeout_seconds < 60 )); then cloudflare_link_timeout_seconds=60; fi
+if (( cloudflare_link_timeout_seconds > 900 )); then cloudflare_link_timeout_seconds=900; fi
 
 [[ -n "$license_key" ]] || fail "BROWSERBOX_ACTION_LICENSE_KEY is required."
 [[ "$tunnel" == "none" || "$tunnel" == "cloudflare" || "$tunnel" == "tor" ]] || fail "Unsupported tunnel '$tunnel'. Expected none, cloudflare, or tor."
@@ -91,20 +137,23 @@ case "$tunnel" in
     ;;
   cloudflare)
     # bbx cf-run is a foreground command that writes login.link twice:
-    # first with a localhost URL (from setup_bbpro), then overwrites it
-    # with the Cloudflare tunnel URL once cloudflared is up. We run it
-    # in our own background and poll login.link for the https:// form.
+    # first with a localhost URL (from setup_bbpro), then with the
+    # verified Cloudflare tunnel URL once cloudflared is up. We run it
+    # in our own background and wait only for the public trycloudflare link.
     bbx cf-run --port "$port" >"$run_log" 2>&1 &
     cf_pid=$!
 
+    # cf-run can spend time in setup/certification, local readiness retries,
+    # and up to three Cloudflare URL/verification attempts.
     login_link=""
-    for ((i = 0; i < 90; i++)); do
-      if [[ -s "$login_link_file" ]]; then
-        candidate="$(tr -d '\r' < "$login_link_file" | head -n 1)"
-        if [[ "$candidate" =~ ^https:// ]]; then
-          login_link="$candidate"
-          break
-        fi
+    for ((i = 0; i < cloudflare_link_timeout_seconds; i++)); do
+      candidate="$(extract_cloudflare_login_link "$login_link_file")"
+      if [[ -z "$candidate" ]]; then
+        candidate="$(extract_cloudflare_login_link "$run_log")"
+      fi
+      if [[ -n "$candidate" ]]; then
+        login_link="$candidate"
+        break
       fi
       if ! kill -0 "$cf_pid" 2>/dev/null; then
         cat "$run_log" >&2
@@ -114,9 +163,9 @@ case "$tunnel" in
     done
 
     if [[ -z "$login_link" ]]; then
-      kill -INT "$cf_pid" 2>/dev/null || true
+      stop_cloudflare_runner "$cf_pid" 20
       tail -n 80 "$run_log" >&2
-      fail "Timed out after 90s waiting for Cloudflare tunnel URL."
+      fail "Timed out after ${cloudflare_link_timeout_seconds}s waiting for public Cloudflare tunnel URL."
     fi
     ;;
   tor)
@@ -131,7 +180,7 @@ case "$tunnel" in
     ;;
 esac
 
-base_url="$(printf '%s' "$login_link" | sed 's#/login?token=.*##')"
+base_url="$(base_url_from_login_link "$login_link")"
 
 {
   echo "login-link=$login_link"
@@ -207,13 +256,20 @@ while (( $(date +%s) < end_time )); do
     tail -n 80 "$run_log" >&2 || true
     exit 1
   fi
+  if [[ "$tunnel" == "cloudflare" ]]; then
+    refreshed_link="$(extract_cloudflare_login_link "$login_link_file")"
+    if [[ -n "$refreshed_link" && "$refreshed_link" != "$login_link" ]]; then
+      login_link="$refreshed_link"
+      base_url="$(base_url_from_login_link "$login_link")"
+      echo "::notice title=BrowserBox Login Link Updated::$login_link"
+    fi
+  fi
   echo "[$(date +%T)] BrowserBox is active. Login at: $login_link"
   sleep 60
 done
 
 echo "Timeout reached. Stopping BrowserBox."
 if [[ -n "${cf_pid:-}" ]]; then
-  kill -INT "$cf_pid" 2>/dev/null || true
-  wait "$cf_pid" 2>/dev/null || true
+  stop_cloudflare_runner "$cf_pid" 20
 fi
 bbx stop || true
