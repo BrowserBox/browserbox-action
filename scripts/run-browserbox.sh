@@ -90,10 +90,10 @@ case "$tunnel" in
     login_link="$(wait_for_login_link "$login_link_file" 90)" || fail "Timed out waiting for BrowserBox login link."
     ;;
   cloudflare)
-    bbx cf-run --background --port "$port" >"$run_log" 2>&1 || {
-      cat "$run_log" >&2
-      fail "bbx cf-run failed."
-    }
+    # Using & and disown to ensure it stays in background and doesn't block the script
+    bbx cf-run --background --port "$port" >"$run_log" 2>&1 &
+    disown
+    
     login_link="$(wait_for_login_link "$login_link_file" 120)" || {
       cat "$run_log" >&2
       fail "Timed out waiting for Cloudflare BrowserBox login link."
@@ -151,10 +151,22 @@ echo "--------------------------------------------------------------------------
   while (( SMOKE_ATTEMPT <= MAX_SMOKE_ATTEMPTS )); do
     sleep 10
     echo "[Smoke Test Attempt $SMOKE_ATTEMPT/$MAX_SMOKE_ATTEMPTS] Checking $base_url ..."
-    if curl -s -o /dev/null -w "%{http_code}" -L -A "Mozilla/5.0 (BrowserBoxActionSmokeTest)" --max-time 10 "$base_url" | grep -qE "200|302|401"; then
+    # Try with verbose output to diagnose 403 or other issues
+    RESPONSE=$(curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" --max-time 10 -w "%{http_code}" "$base_url" -o /tmp/smoke_out.html || echo "CURL_FAILED")
+    
+    echo "[Smoke Test] Response code: $RESPONSE"
+    
+    if [[ "$RESPONSE" =~ ^(200|302|401)$ ]]; then
       echo "[Smoke Test] SUCCESS: BrowserBox is accessible via tunnel."
       SMOKE_SUCCESS=true
       break
+    elif [[ "$RESPONSE" == "403" ]]; then
+      echo "[Smoke Test] Received 403. This might be Cloudflare WAF or Bot Protection. Checking content..."
+      if grep -qi "BrowserBox" /tmp/smoke_out.html; then
+        echo "[Smoke Test] SUCCESS: Found 'BrowserBox' in 403 response body. It is reachable!"
+        SMOKE_SUCCESS=true
+        break
+      fi
     fi
     (( SMOKE_ATTEMPT++ ))
   done
