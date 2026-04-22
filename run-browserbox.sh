@@ -9,10 +9,15 @@ Launch the BrowserBox GitHub Actions runner workflow and print the live link.
 
 Options:
   --license-key KEY       Set/update the repo secret BBX_LICENSE_KEY before running.
-  --repo OWNER/NAME       Repository to run the workflow in.
+  --repo OWNER/NAME       Repository to run the workflow in, creating it if needed.
+  --repo-name NAME        Repo name for auto-create. Defaults to <directory>-runner.
   --ref REF               Branch/ref to run. Defaults to the current branch or main.
   --timeout MINUTES       Session timeout. Defaults to 10.
   --workflow NAME         Workflow name or file. Defaults to "Live Smoke Run".
+  --public                Create the bootstrap repo as public.
+  --private               Create the bootstrap repo as private. This is the default.
+  --no-create-repo        Fail instead of creating/bootstrapping a repo.
+  --remote NAME           Local git remote name for bootstrap pushes. Defaults to browserbox-runner.
   --no-open              Do not open the tracking issue in a browser.
   -h, --help              Show this help.
 
@@ -20,6 +25,8 @@ Environment:
   BBX_LICENSE_KEY, BROWSERBOX_LICENSE_KEY, or BROWSERBOX_ACTION_LICENSE_KEY
                           Used when --license-key is not supplied.
   BROWSERBOX_RUN_REPO     Default repository, in owner/name form.
+  BROWSERBOX_RUN_REPO_NAME
+                          Repo name for auto-create.
 EOF
 }
 
@@ -29,7 +36,7 @@ die() {
 }
 
 log() {
-  printf '[browserbox] %s\n' "$*"
+  printf '[browserbox] %s\n' "$*" >&2
 }
 
 remote_repo() {
@@ -69,14 +76,133 @@ workflow_exists() {
   gh workflow view "$workflow" --repo "$repo" >/dev/null 2>&1
 }
 
+repo_exists() {
+  local repo="$1"
+  gh repo view "$repo" >/dev/null 2>&1
+}
+
+authenticated_owner() {
+  gh api user --jq .login
+}
+
+repo_clone_url() {
+  local repo="$1"
+  local protocol
+
+  protocol="$(gh config get git_protocol -h github.com 2>/dev/null || true)"
+  if [[ "$protocol" == "ssh" ]]; then
+    gh repo view "$repo" --json sshUrl --jq .sshUrl
+  else
+    gh repo view "$repo" --json url --jq .url
+  fi
+}
+
+sanitize_repo_name() {
+  local raw="$1"
+  local clean
+
+  clean="$(printf '%s' "$raw" | tr ' ' '-' | tr -cd 'A-Za-z0-9._-')"
+  clean="${clean#.}"
+  clean="${clean%-}"
+  printf '%s\n' "${clean:-browserbox-runner}"
+}
+
+default_auto_repo() {
+  local owner="$1"
+  local name
+  local root
+
+  root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  name="${BROWSERBOX_RUN_REPO_NAME:-${repo_name_arg:-}}"
+  if [[ -z "$name" ]]; then
+    name="$(basename "$root")-runner"
+  fi
+
+  printf '%s/%s\n' "$owner" "$(sanitize_repo_name "$name")"
+}
+
+ensure_git_worktree() {
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "repo bootstrap requires running from this git checkout"
+}
+
+warn_uncommitted_bootstrap_changes() {
+  local dirty
+
+  dirty="$(git status --porcelain -- .github/workflows/smoke-run.yml action.yml scripts/run-browserbox.sh run-browserbox.sh 2>/dev/null || true)"
+  if [[ -n "$dirty" ]]; then
+    log "warning: workflow/action helper files have uncommitted changes; only committed HEAD will be pushed"
+  fi
+}
+
+ensure_remote() {
+  local remote="$1"
+  local repo="$2"
+  local url
+
+  url="$(repo_clone_url "$repo")"
+  if git remote get-url "$remote" >/dev/null 2>&1; then
+    if [[ "$(git remote get-url "$remote")" != "$url" ]]; then
+      git remote set-url "$remote" "$url"
+    fi
+  else
+    git remote add "$remote" "$url"
+  fi
+}
+
+wait_for_workflow() {
+  local repo="$1"
+  local workflow="$2"
+
+  for _ in $(seq 1 60); do
+    workflow_exists "$repo" "$workflow" && return 0
+    sleep 2
+  done
+
+  return 1
+}
+
+bootstrap_repo() {
+  local repo="$1"
+  local workflow="$2"
+  local ref="$3"
+
+  [[ "$create_repo" == "true" ]] || die "no repo with workflow \"${workflow}\" found; pass --repo OWNER/NAME or remove --no-create-repo"
+  ensure_git_worktree
+  warn_uncommitted_bootstrap_changes
+
+  if repo_exists "$repo"; then
+    log "bootstrap repo exists: ${repo}"
+  else
+    log "creating ${repo_visibility} repo: ${repo}"
+    gh repo create "$repo" "--${repo_visibility}" --disable-wiki \
+      --description "Private BrowserBox GitHub Actions runner"
+  fi
+
+  ensure_remote "$bootstrap_remote" "$repo"
+
+  log "pushing current HEAD to ${repo}:${ref}"
+  if ! git push "$bootstrap_remote" "HEAD:refs/heads/${ref}"; then
+    die "failed to push current HEAD to ${repo}:${ref}; resolve the git push error or pass a different --repo"
+  fi
+
+  log "waiting for workflow \"${workflow}\" to become available"
+  wait_for_workflow "$repo" "$workflow" || die "workflow \"${workflow}\" was not found in ${repo} after pushing ${ref}"
+}
+
 resolve_repo() {
   local workflow="$1"
-  local repo="${BROWSERBOX_RUN_REPO:-}"
+  local ref="$2"
+  local explicit_repo="${repo_arg:-${BROWSERBOX_RUN_REPO:-}}"
   local candidate
   local candidates=()
 
-  if [[ -n "$repo" ]]; then
-    printf '%s\n' "$repo"
+  if [[ -n "$explicit_repo" ]]; then
+    if workflow_exists "$explicit_repo" "$workflow"; then
+      printf '%s\n' "$explicit_repo"
+      return 0
+    fi
+    bootstrap_repo "$explicit_repo" "$workflow" "$ref"
+    printf '%s\n' "$explicit_repo"
     return 0
   fi
 
@@ -95,8 +221,10 @@ resolve_repo() {
     fi
   done
 
-  [[ "${#candidates[@]}" -gt 0 ]] || die "could not infer a GitHub repo; pass --repo OWNER/NAME"
-  printf '%s\n' "${candidates[0]}"
+  candidate="$(default_auto_repo "$(authenticated_owner)")"
+  log "no existing candidate repo has workflow \"${workflow}\""
+  bootstrap_repo "$candidate" "$workflow" "$ref"
+  printf '%s\n' "$candidate"
 }
 
 open_url() {
@@ -216,11 +344,15 @@ wait_for_login_link() {
 
 license_key="${BBX_LICENSE_KEY:-${BROWSERBOX_LICENSE_KEY:-${BROWSERBOX_ACTION_LICENSE_KEY:-}}}"
 repo_arg=""
+repo_name_arg=""
 ref="$(git branch --show-current 2>/dev/null || true)"
 ref="${ref:-main}"
 timeout_mins="10"
 workflow="Live Smoke Run"
 open_issue="true"
+create_repo="true"
+repo_visibility="private"
+bootstrap_remote="browserbox-runner"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -240,6 +372,15 @@ while [[ $# -gt 0 ]]; do
       ;;
     --repo=*)
       repo_arg="${1#*=}"
+      shift
+      ;;
+    --repo-name)
+      [[ $# -ge 2 ]] || die "--repo-name requires a value"
+      repo_name_arg="$2"
+      shift 2
+      ;;
+    --repo-name=*)
+      repo_name_arg="${1#*=}"
       shift
       ;;
     --ref)
@@ -269,6 +410,27 @@ while [[ $# -gt 0 ]]; do
       workflow="${1#*=}"
       shift
       ;;
+    --public)
+      repo_visibility="public"
+      shift
+      ;;
+    --private)
+      repo_visibility="private"
+      shift
+      ;;
+    --no-create-repo)
+      create_repo="false"
+      shift
+      ;;
+    --remote)
+      [[ $# -ge 2 ]] || die "--remote requires a value"
+      bootstrap_remote="$2"
+      shift 2
+      ;;
+    --remote=*)
+      bootstrap_remote="${1#*=}"
+      shift
+      ;;
     --no-open)
       open_issue="false"
       shift
@@ -287,14 +449,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-command -v gh >/dev/null 2>&1 || die "gh is required"
-gh auth status >/dev/null 2>&1 || die "gh is not authenticated"
+command -v gh >/dev/null 2>&1 || die "gh is required. Install GitHub CLI: https://cli.github.com/"
+gh auth status >/dev/null 2>&1 || die "gh is not authenticated. Run: gh auth login --scopes repo"
 [[ "$timeout_mins" =~ ^[0-9]+$ ]] || die "--timeout must be an integer number of minutes"
+[[ "$repo_visibility" == "private" || "$repo_visibility" == "public" ]] || die "repo visibility must be private or public"
+[[ -n "$bootstrap_remote" ]] || die "--remote cannot be empty"
 
 if [[ -n "$repo_arg" ]]; then
-  repo="$repo_arg"
+  repo="$(resolve_repo "$workflow" "$ref")"
 else
-  repo="$(resolve_repo "$workflow")"
+  repo="$(resolve_repo "$workflow" "$ref")"
 fi
 
 log "repo: ${repo}"
