@@ -49,6 +49,14 @@ inputs:
     description: "Maximum run time in minutes (default 30, max 150)"
     required: false
     default: "30"
+  broadcast-issue-number:
+    description: "Optional GitHub issue number to receive the live BrowserBox login link"
+    required: false
+    default: ""
+  broadcast-issue-repo:
+    description: "Repository for broadcast-issue-number, in owner/name form; defaults to the workflow repository"
+    required: false
+    default: ""
 
 outputs:
   login-link:
@@ -92,4 +100,6 @@ runs:
         BROWSERBOX_ACTION_STATUS_MODE: ${{ inputs.status-mode }}
         BROWSERBOX_ACTION_CREATE_SUMMARY: ${{ inputs.create-summary }}
         BROWSERBOX_ACTION_TIMEOUT: ${{ inputs.timeout }}
+        BROWSERBOX_ACTION_BROADCAST_ISSUE_NUMBER: ${{ inputs.broadcast-issue-number }}
+        BROWSERBOX_ACTION_BROADCAST_ISSUE_REPO: ${{ inputs.broadcast-issue-repo }}
       run: ${{ github.action_path }}/scripts/run-browserbox.sh

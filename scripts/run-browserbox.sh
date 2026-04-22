@@ -40,6 +40,64 @@ base_url_from_login_link() {
   printf '%s' "$1" | sed 's#/login?token=.*##'
 }
 
+ensure_gh_token() {
+  if [[ -z "${GH_TOKEN:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
+    export GH_TOKEN="$GITHUB_TOKEN"
+  fi
+}
+
+broadcast_issue_comment() {
+  local body="$1"
+
+  [[ -n "$broadcast_issue_number" ]] || return 0
+  if [[ -z "$broadcast_issue_repo" ]]; then
+    echo "::warning::Skipping BrowserBox issue broadcast because no GitHub repository is available."
+    return 0
+  fi
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "::warning::Skipping BrowserBox issue broadcast because gh is not installed."
+    return 0
+  fi
+
+  ensure_gh_token
+  if [[ -z "${GH_TOKEN:-}" && -z "${GITHUB_TOKEN:-}" ]]; then
+    echo "::warning::Skipping BrowserBox issue broadcast because no GitHub token is available."
+    return 0
+  fi
+
+  echo "[Broadcast] Posting BrowserBox link to ${broadcast_issue_repo}#${broadcast_issue_number}..."
+  if ! gh issue comment "$broadcast_issue_number" --repo "$broadcast_issue_repo" --body "$body"; then
+    echo "::warning::Failed to post BrowserBox link to issue #${broadcast_issue_number}."
+  fi
+}
+
+broadcast_login_link() {
+  local title="${1:-BrowserBox login link}"
+  local run_url=""
+
+  if [[ -n "${GITHUB_SERVER_URL:-}" && -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_RUN_ID:-}" ]]; then
+    run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+  fi
+
+  local body
+  body="$(cat <<EOF
+## ${title}
+
+- Tunnel: \`${tunnel}\`
+- Service mode: \`${service_mode}\`
+- Base URL: \`${base_url}\`
+- Timeout: \`${timeout_mins}m\`
+EOF
+)"
+
+  if [[ -n "$run_url" ]]; then
+    body="${body}"$'\n'"- Run: ${run_url}"
+  fi
+
+  body="${body}"$'\n\n'"Login link:"$'\n'"${login_link}"
+  broadcast_issue_comment "$body"
+}
+
 stop_cloudflare_runner() {
   local pid="${1:-}"
   local wait_seconds="${2:-20}"
@@ -80,6 +138,8 @@ status_mode="${BROWSERBOX_ACTION_STATUS_MODE:-}"
 create_summary="${BROWSERBOX_ACTION_CREATE_SUMMARY:-true}"
 timeout_mins="${BROWSERBOX_ACTION_TIMEOUT:-30}"
 cloudflare_link_timeout_seconds="${BROWSERBOX_ACTION_CLOUDFLARE_LINK_TIMEOUT:-600}"
+broadcast_issue_number="${BROWSERBOX_ACTION_BROADCAST_ISSUE_NUMBER:-${BROADCAST_ISSUE_NUMBER:-}}"
+broadcast_issue_repo="${BROWSERBOX_ACTION_BROADCAST_ISSUE_REPO:-${BROADCAST_ISSUE_REPO:-${GITHUB_REPOSITORY:-}}}"
 
 # Sanitize timeout: min 1, max 150
 if [[ ! "$timeout_mins" =~ ^[0-9]+$ ]]; then
@@ -206,6 +266,7 @@ fi
 
 # Surface the link in the GitHub Actions UI banner while the job is still running.
 echo "::notice title=BrowserBox Login Link::$login_link"
+broadcast_login_link "BrowserBox login link"
 
 echo "--------------------------------------------------------------------------------"
 echo "BrowserBox is running!"
@@ -262,6 +323,7 @@ while (( $(date +%s) < end_time )); do
       login_link="$refreshed_link"
       base_url="$(base_url_from_login_link "$login_link")"
       echo "::notice title=BrowserBox Login Link Updated::$login_link"
+      broadcast_login_link "BrowserBox login link updated"
     fi
   fi
   echo "[$(date +%T)] BrowserBox is active. Login at: $login_link"
