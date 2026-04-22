@@ -1,0 +1,29 @@
+name: Test BrowserBox Action
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-cloudflare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run BrowserBox with Cloudflare Tunnel
+        id: bbx
+        uses: ./
+        with:
+          license-key: ${{ secrets.BBX_LICENSE_KEY }}
+          tunnel: cloudflare
+          service-mode: minimal
+
+      - name: Verify Outputs
+        run: |
+          echo "Login Link: ${{ steps.bbx.outputs.login-link }}"
+          echo "Base URL: ${{ steps.bbx.outputs.base-url }}"
+          if [[ -z "${{ steps.bbx.outputs.login-link }}" ]]; then
+            echo "Error: Login link is empty"
+            exit 1
+          fi
